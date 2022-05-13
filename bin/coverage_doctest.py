@@ -262,20 +262,6 @@ def get_mod_name(path, base):
 
     return file_module[:-1]
 
-class FindInSphinx(HTMLParser):
-    is_imported = []
-    def handle_starttag(self, tag, attr):
-        a = dict(attr)
-        if tag == "div":
-            print("             class:", a.get('class'))
-            print("id = ", a.get('id'))
-        #if tag == "div" and a.get('class', None) == "viewcode-block":
-        if tag == "div" and a.get('class', None) == "highlight-default notranslate":
-            print("_____________________code block!________________________")
-            self.is_imported.append(a['id'])
-
-temp_item = ""
-
 def find_codeblock(html_tree, name):
     # Code block element has class 'highlight-default notranslate'
     # so this xpath checks if html tree that follows an element
@@ -285,11 +271,12 @@ def find_codeblock(html_tree, name):
             "div[contains(@class, 'highlight-default notranslate')]"
     codeblock_element = html_tree.xpath(xpath)
     if not codeblock_element:
-        #sys.exit(1)
         return False
     return True
 
 def find_sphinx(name, mod_path):
+    # Find sphinx coverage based on a few possible paths for html file,
+    # returns False if there is no code example for module
     doc_path = mod_path.split('.')
     fin = doc_path[1:]
     document_path = fin[:3]
@@ -314,62 +301,11 @@ def find_sphinx(name, mod_path):
             document_path_other_version.append(name)
             othername = ".".join(document_path_other_version)
 
-            print("fullname: " + fullname)
-            print("othername: " + othername)
             if find_codeblock(html_tree, fullname) or find_codeblock(html_tree, othername):
                 return True
         else:
             continue
         return False
-
-def find_sphinx_old(name, mod_path, found={}):
-    if mod_path in found: # Cache results
-        return name in found[mod_path]
-    doc_path = mod_path.split('.')
-    fin = doc_path[1:]
-    document_path = fin[:3]
-    document_path_tmp = document_path.copy()
-    index_path_tmp = document_path.copy()
-    document_path[-1] = document_path[-1].replace('_', '')
-    document_path[-1] += '.html'
-    sphinx_path = os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path)
-    index_path_tmp[-1] = "index.html"
-    index_path = os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path)
-
-    document_path_other_version = []
-    while not os.path.exists(sphinx_path):
-        document_path.pop()
-        if len(document_path) < 1:
-            return False
-        document_path[-1] = document_path[-1].replace('_', '')
-
-        document_path_other_version = document_path.copy()
-        document_path[-1] += '.html'
-        sphinx_path = os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path)
-
-    global temp_item
-    if temp_item != sphinx_path:
-        temp_item = sphinx_path
-    if not os.path.exists(sphinx_path):
-        return False
-    with open(sphinx_path) as f:
-        html_txt = f.read()
-
-    html_tree = html.fromstring(html_txt)
-    document_path_tmp.insert(0, "sympy")
-    document_path_tmp.append(name)
-    fullname = ".".join(document_path_tmp)
-    othername = fullname
-    if document_path_other_version:
-        document_path_other_version.insert(0, "sympy")
-        document_path_other_version.append(name)
-        othername = ".".join(document_path_other_version)
-
-    #print("fullname:", fullname)
-    #print("othername:", fullname)
-    #print(mod_path)
-    #print(find_codeblock(html_tree, fullname))
-    return find_codeblock(html_tree, fullname) or find_codeblock(html_tree, othername)
 
 def find_module_html_paths(document_path):
     # Find all paths that should be checked given the module name
