@@ -31,6 +31,8 @@ except ImportError:
     from html.parser import HTMLParser
 
 from sympy.utilities.misc import filldedent
+from lxml import html
+import requests
 
 
 # Load color templates, duplicated from sympy/testing/runtests.py
@@ -264,24 +266,133 @@ class FindInSphinx(HTMLParser):
     is_imported = []
     def handle_starttag(self, tag, attr):
         a = dict(attr)
-        if tag == "div" and a.get('class', None) == "viewcode-block":
+        if tag == "div":
+            print("             class:", a.get('class'))
+            print("id = ", a.get('id'))
+        #if tag == "div" and a.get('class', None) == "viewcode-block":
+        if tag == "div" and a.get('class', None) == "highlight-default notranslate":
+            print("_____________________code block!________________________")
             self.is_imported.append(a['id'])
 
-def find_sphinx(name, mod_path, found={}):
+temp_item = ""
+
+def find_codeblock(html_tree, name):
+    # Code block element has class 'highlight-default notranslate'
+    # so this xpath checks if html tree that follows an element
+    # with the module name contains a code block
+    xpath = "//*[@id='" + name + \
+            "']/following-sibling::*/descendant-or-self::" \
+            "div[contains(@class, 'highlight-default notranslate')]"
+    codeblock_element = html_tree.xpath(xpath)
+    if not codeblock_element:
+        #sys.exit(1)
+        return False
+    return True
+
+def find_sphinx(name, mod_path):
+    doc_path = mod_path.split('.')
+    fin = doc_path[1:]
+    document_path = fin[:3]
+
+    document_path_tmp = document_path.copy()
+    document_path_other_version = document_path.copy()
+
+    possible_path_list = find_module_html_paths(document_path)
+
+    for path in possible_path_list:
+        if os.path.exists(path):
+            with open(path) as f:
+                html_txt = f.read()
+            html_tree = html.fromstring(html_txt)
+            document_path_tmp.insert(0, "sympy")
+            document_path_tmp.append(name)
+            fullname = ".".join(document_path_tmp)
+
+            if document_path_other_version[-1] == document_path_other_version[-2]:
+                document_path_other_version.pop()
+            document_path_other_version.insert(0, "sympy")
+            document_path_other_version.append(name)
+            othername = ".".join(document_path_other_version)
+
+            print("fullname: " + fullname)
+            print("othername: " + othername)
+            if find_codeblock(html_tree, fullname) or find_codeblock(html_tree, othername):
+                return True
+        else:
+            continue
+        return False
+
+def find_sphinx_old(name, mod_path, found={}):
     if mod_path in found: # Cache results
         return name in found[mod_path]
-
     doc_path = mod_path.split('.')
-    doc_path[-1] += '.html'
-    sphinx_path = os.path.join(sympy_top, 'doc', '_build', 'html', '_modules', *doc_path)
+    fin = doc_path[1:]
+    document_path = fin[:3]
+    document_path_tmp = document_path.copy()
+    index_path_tmp = document_path.copy()
+    document_path[-1] = document_path[-1].replace('_', '')
+    document_path[-1] += '.html'
+    sphinx_path = os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path)
+    index_path_tmp[-1] = "index.html"
+    index_path = os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path)
+
+    document_path_other_version = []
+    while not os.path.exists(sphinx_path):
+        document_path.pop()
+        if len(document_path) < 1:
+            return False
+        document_path[-1] = document_path[-1].replace('_', '')
+
+        document_path_other_version = document_path.copy()
+        document_path[-1] += '.html'
+        sphinx_path = os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path)
+
+    global temp_item
+    if temp_item != sphinx_path:
+        temp_item = sphinx_path
     if not os.path.exists(sphinx_path):
         return False
     with open(sphinx_path) as f:
         html_txt = f.read()
-    p = FindInSphinx()
-    p.feed(html_txt)
-    found[mod_path] = p.is_imported
-    return name in p.is_imported
+
+    html_tree = html.fromstring(html_txt)
+    document_path_tmp.insert(0, "sympy")
+    document_path_tmp.append(name)
+    fullname = ".".join(document_path_tmp)
+    othername = fullname
+    if document_path_other_version:
+        document_path_other_version.insert(0, "sympy")
+        document_path_other_version.append(name)
+        othername = ".".join(document_path_other_version)
+
+    #print("fullname:", fullname)
+    #print("othername:", fullname)
+    #print(mod_path)
+    #print(find_codeblock(html_tree, fullname))
+    return find_codeblock(html_tree, fullname) or find_codeblock(html_tree, othername)
+
+def find_module_html_paths(document_path):
+    # Find all paths that should be checked given the module name
+    # (i.e. look for a self titled html file or index.html as well as
+    # a html file with the module name)
+    path_list = []
+    # While not os.path.exists(sphinx_path):
+    while len(document_path) > 1:
+        document_path[-1] = document_path[-1].replace('_', '')
+        document_path[-1] += '.html'
+        path_list.append(os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path))
+        document_path[-1] = "index.html"
+        path_list.append(os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path))
+
+        # Look if module is in self titled html file (i.e. file for modules that dont deserve their own)
+        if len(document_path) > 1:
+            document_path[-1] = document_path[-2]
+            document_path[-1] += '.html'
+            path_list.append(os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path))
+        document_path.pop()
+    document_path[-1] += '.html'
+    path_list.append(os.path.join(sympy_top, 'doc', '_build', 'html', 'modules', *document_path))
+    return path_list
 
 def process_function(name, c_name, b_obj, mod_path, f_skip, f_missing_doc, f_missing_doctest, f_indirect_doctest,
                      f_has_doctest, skip_list, sph, sphinx=True):
